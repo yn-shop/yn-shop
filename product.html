@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YN | 商品詳情</title>
+    <style>
+        body { background: #fff; color: #222; font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; line-height: 1.6; }
+        header { border-bottom: 1px solid #f0f0f0; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: rgba(255,255,255,0.95); z-index: 100; }
+        .logo { font-size: 26px; font-weight: bold; letter-spacing: 4px; color: #000; text-decoration: none; }
+        nav a { text-decoration: none; color: #555; font-size: 14px; margin-left: 20px; }
+        
+        .container { padding: 50px; max-width: 1000px; margin: auto; }
+        .back-link { display: inline-block; margin-bottom: 30px; color: #888; text-decoration: none; font-size: 14px; transition: 0.3s; }
+        .back-link:hover { color: #000; }
+
+        /* 商品排版：左圖右文 */
+        .product-layout { display: flex; gap: 50px; flex-wrap: wrap; }
+        
+        /* 畫廊區塊 (新增) */
+        .product-gallery { flex: 1.3; min-width: 300px; }
+        .main-image-wrapper { width: 100%; aspect-ratio: 3/4; border: 1px solid #eee; margin-bottom: 10px; overflow: hidden; background: #f9f9f9; }
+        .main-image { width: 100%; height: 100%; object-fit: cover; }
+        .thumbnail-container { display: flex; gap: 10px; flex-wrap: wrap; }
+        .thumbnail { width: 80px; aspect-ratio: 3/4; border: 1px solid #eee; cursor: pointer; transition: 0.3s; object-fit: cover; }
+        .thumbnail:hover, .thumbnail.active { border-color: #000; }
+
+        /* 資訊區塊 */
+        .product-info { flex: 1; min-width: 300px; display: flex; flex-direction: column; justify-content: flex-start; }
+        .product-title { font-size: 24px; margin: 0 0 15px 0; font-weight: 500; }
+        .product-price { font-size: 20px; font-weight: bold; margin-bottom: 30px; }
+        
+        .info-section { margin-bottom: 25px; border-top: 1px solid #f0f0f0; padding-top: 15px; }
+        .info-title { font-size: 13px; color: #888; letter-spacing: 2px; margin-bottom: 8px; }
+        .info-content { font-size: 15px; color: #444; white-space: pre-line; }
+
+        .btn { background: #000; color: #fff; border: none; padding: 15px; width: 100%; cursor: pointer; transition: 0.3s; font-size: 15px; margin-top: auto; }
+        .btn:hover { background: #444; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<header>
+    <a href="index.html" class="logo">YN</a>
+    <nav>
+        <a href="index.html" style="margin-right: 20px;">返回首頁</a>
+        <a href="index.html#cart-section" class="cart-nav" style="font-weight: bold; background: #f5f5f5; padding: 5px 12px; border-radius: 20px;">🛒 (<span id="cart-count">0</span>)</a>
+    </nav>
+</header>
+
+<div class="container">
+    <a href="index.html" class="back-link">← BACK TO SHOP</a>
+    
+    <div class="product-layout" id="detail-container">
+        <p>商品資料載入中...</p>
+    </div>
+</div>
+
+<script>
+    // ⭐️ 改用免費的 GAS 網址
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbyf8G3Xbfi0A6PEL_9-IWf54zq0yMPUSQa3kR8O_WCJItxjFrReYx70307nWf970n8ZsA/exec'; 
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const productId = urlParams.get('id');
+
+    let cart = JSON.parse(localStorage.getItem('yn_cart')) || [];
+    document.getElementById('cart-count').innerText = cart.length;
+
+    let currentProductData = null; 
+
+    async function loadProductDetail() {
+        if (!productId) {
+            document.getElementById('detail-container').innerHTML = '<p>找不到商品。</p>';
+            return;
+        }
+
+        try {
+            // 👈 抓取全部免費資料後，用 JS 篩選出這件衣服，完全不消耗 SheetDB 額度！
+            const res = await fetch(GAS_URL);
+            const allData = await res.json();
+            // ⭐️ 同樣加入 String() 強制轉型
+            const data = allData.filter(item => String(item.id).trim() === String(productId).trim());
+
+            if (data.length > 0) {
+                const p = data[0];
+                currentProductData = p; // 把資料存起來，等等加購物車要用
+                const isOut = parseInt(p.stock) <= 0;
+                const desc = p.description || "尚未新增商品描述。";
+                const sizeAdvice = p.size_details || "歡迎私訊詢問詳細尺寸。";
+                const fitAdvice = p.fit_description || "尚未新增商品描述。";
+
+                const images = [];
+                if (p.image_url_1) images.push(p.image_url_1);
+                if (p.image_url_2) images.push(p.image_url_2);
+                if (p.image_url_3) images.push(p.image_url_3);
+                if (p.image_url_4) images.push(p.image_url_4);
+                if (p.image_url_3) images.push(p.image_url_5);
+                if (p.image_url_4) images.push(p.image_url_6);
+
+                const mainImgSrc = images.length > 0 ? images[0] : '';
+                
+                let thumbHtml = '';
+                if (images.length > 1) {
+                    images.forEach((img, index) => {
+                        thumbHtml += `<img src="${img}" alt="Thumb ${index}" class="thumbnail ${index === 0 ? 'active' : ''}" onclick="changeMainImage(this, '${img}')">`;
+                    });
+                }
+
+                document.getElementById('detail-container').innerHTML = `
+                    <div class="product-gallery">
+                        <div class="main-image-wrapper">
+                            ${mainImgSrc ? `<img id="main-product-img" src="${mainImgSrc}" alt="${p.name}" class="main-image">` : '<div style="display:flex;justify-content:center;align-items:center;height:100%;color:#ccc;">PHOTO</div>'}
+                        </div>
+                        <div class="thumbnail-container">
+                            ${thumbHtml}
+                        </div>
+                    </div>
+
+                    <div class="product-info">
+                        <h1 class="product-title">${p.name}</h1>
+                        <div class="product-price">NT$ ${p.price}</div>
+                        
+                        <div class="info-section">
+                            <div class="info-title">DETAILS</div>
+                            <div class="info-content">${desc}</div>
+                        </div>
+                        
+                        <div class="info-section">
+                            <div class="info-title">SIZE</div>
+                            <div class="info-content">${sizeAdvice}</div>
+                        </div>
+
+                        <div class="info-section">
+                            <div class="info-title">FIT ADVICE</div>
+                            <div class="info-content">${fitAdvice}</div>
+                        </div>
+
+                        <button class="btn" ${isOut ? 'disabled' : ''} onclick="addToCartFromDetail()">
+                            ${isOut ? '已售完 SOLD OUT' : '加入購物車'}
+                        </button>
+                    </div>
+                `;
+            } else {
+                document.getElementById('detail-container').innerHTML = '<p>商品已下架或不存在。</p>';
+            }
+        } catch (e) {
+            document.getElementById('detail-container').innerHTML = '<p>連線失敗，請稍後再試。</p>';
+        }
+    }
+
+    function changeMainImage(thumbElement, imageUrl) {
+        document.getElementById('main-product-img').src = imageUrl;
+        const thumbnails = document.querySelectorAll('.thumbnail');
+        thumbnails.forEach(t => t.classList.remove('active')); 
+        thumbElement.classList.add('active'); 
+    }
+
+    // ⭐️ 新增：在商品詳情頁加入購物車的函數
+    function addToCartFromDetail() {
+        if (!currentProductData) return;
+        
+        // 檢查是否加過了
+        if (cart.find(c => c.id === currentProductData.id)) {
+            alert("此商品已在購物車中！");
+            return;
+        }
+
+        // 加進購物車並存入硬碟
+        cart.push(currentProductData);
+        localStorage.setItem('yn_cart', JSON.stringify(cart));
+        
+        // 更新右上角的數字
+        document.getElementById('cart-count').innerText = cart.length;
+        alert("已成功加入購物車！您可以點擊右上方購物車前往結帳。");
+    }
+
+    loadProductDetail();
+</script>
+
+</body>
+</html>
