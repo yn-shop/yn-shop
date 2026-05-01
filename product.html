@@ -58,8 +58,8 @@
 </div>
 
 <script>
-    // ⭐️ 改用免費的 GAS 網址
-    const GAS_URL = 'https://script.google.com/macros/s/AKfycbyf8G3Xbfi0A6PEL_9-IWf54zq0yMPUSQa3kR8O_WCJItxjFrReYx70307nWf970n8ZsA/exec'; 
+    // ⭐️ 指向你的本機 FastAPI 伺服器
+    const API_BASE_URL = 'http://127.0.0.1:8000'; 
     
     const urlParams = new URLSearchParams(window.location.search);
     const productId = urlParams.get('id');
@@ -76,27 +76,33 @@
         }
 
         try {
-            // 👈 抓取全部免費資料後，用 JS 篩選出這件衣服，完全不消耗 SheetDB 額度！
-            const res = await fetch(GAS_URL);
+            // 從本地 API 抓取資料
+            const res = await fetch(`${API_BASE_URL}/products`);
             const allData = await res.json();
-            // ⭐️ 同樣加入 String() 強制轉型
+            
+            // 強制轉型比對，確保 ID 格式一致
             const data = allData.filter(item => String(item.id).trim() === String(productId).trim());
 
             if (data.length > 0) {
                 const p = data[0];
-                currentProductData = p; // 把資料存起來，等等加購物車要用
+                currentProductData = p; 
+                
                 const isOut = parseInt(p.stock) <= 0;
+                
+                // ⚠️ 注意：這裡的 p.XXX 必須跟你 CSV 的第一列標題完全一樣！
+                // 如果你的 CSV 標題有空格或中文，要寫成 p["商品描述"] 這種格式
                 const desc = p.description || "尚未新增商品描述。";
-                const sizeAdvice = p.size_details || "歡迎私訊詢問詳細尺寸。";
+                const sizeAdvice = p.size_details || "歡迎私訊 IG 詢問詳細尺寸。";
                 const fitAdvice = p.fit_description || "尚未新增商品描述。";
 
                 const images = [];
+                // 🐛 修正了原本抓圖邏輯的筆誤
                 if (p.image_url_1) images.push(p.image_url_1);
                 if (p.image_url_2) images.push(p.image_url_2);
                 if (p.image_url_3) images.push(p.image_url_3);
                 if (p.image_url_4) images.push(p.image_url_4);
-                if (p.image_url_3) images.push(p.image_url_5);
-                if (p.image_url_4) images.push(p.image_url_6);
+                if (p.image_url_5) images.push(p.image_url_5);
+                if (p.image_url_6) images.push(p.image_url_6);
 
                 const mainImgSrc = images.length > 0 ? images[0] : '';
                 
@@ -145,7 +151,7 @@
                 document.getElementById('detail-container').innerHTML = '<p>商品已下架或不存在。</p>';
             }
         } catch (e) {
-            document.getElementById('detail-container').innerHTML = '<p>連線失敗，請稍後再試。</p>';
+            document.getElementById('detail-container').innerHTML = '<p>連線失敗，請確認伺服器是否開啟。</p>';
         }
     }
 
@@ -156,21 +162,17 @@
         thumbElement.classList.add('active'); 
     }
 
-    // ⭐️ 新增：在商品詳情頁加入購物車的函數
     function addToCartFromDetail() {
         if (!currentProductData) return;
         
-        // 檢查是否加過了
-        if (cart.find(c => c.id === currentProductData.id)) {
+        if (cart.find(c => String(c.id).trim() === String(currentProductData.id).trim())) {
             alert("此商品已在購物車中！");
             return;
         }
 
-        // 加進購物車並存入硬碟
         cart.push(currentProductData);
         localStorage.setItem('yn_cart', JSON.stringify(cart));
         
-        // 更新右上角的數字
         document.getElementById('cart-count').innerText = cart.length;
         alert("已成功加入購物車！您可以點擊右上方購物車前往結帳。");
     }

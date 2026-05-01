@@ -194,26 +194,24 @@
 </div>
 
 <script>
-    // ⭐️ 免費無限次讀取專用 (Google Apps Script)
-    const GAS_URL = 'https://script.google.com/macros/s/AKfycbztZDwKzgspU7yLzVewWM5BEYGxepcWtLLB752PFeeta_HvP7nzbYm_doj9KvZMYyYfDQ/exec';
+    // ⭐️ 指向你的本機 FastAPI 伺服器
+    const API_BASE_URL = 'http://127.0.0.1:8000';
     
-    // ⭐️ 結帳扣庫存專用 (保留 SheetDB，只有下單瞬間會用到，絕對不會爆額度)
-//    const SHEETDB_URL = 'https://sheetdb.io/api/v1/fcmz4wvj30x7e'; 
-    
+    // ⭐️ 保留本地暫存功能：從瀏覽器記憶體抓取購物車，防止重整消失
     let cart = JSON.parse(localStorage.getItem('yn_cart')) || [];
     let productsData = [];
     let currentCategory = 'ALL';
 
     async function init() {
         try {
-            // 👈 首頁瀏覽大量資料時，向免費的 GAS 討資料
-            const res = await fetch(GAS_URL);
+            // 從 FastAPI 取得最新商品與庫存資料
+            const res = await fetch(`${API_BASE_URL}/products`);
             productsData = await res.json();
             renderProducts();
             updateCartUI(); 
         } catch (e) { 
-            console.error("初始化失敗", e); 
-            alert("衣服資料載入失敗，請稍後再試！"); 
+            console.error("初始化失敗，請確認 API 伺服器是否開啟", e); 
+            alert("衣服資料載入失敗，請確認 uvicorn 伺服器是否運作中！"); 
         }
     }
 
@@ -264,7 +262,7 @@
     }
 
     function addToCart(id) {
-        // ⭐️ 加入 String() 強制轉成文字比對，解決 Google API 的型別問題
+        // 加入 String() 強制轉成文字比對
         const item = productsData.find(p => String(p.id).trim() === String(id).trim());
         
         if (!item) {
@@ -278,9 +276,17 @@
         }
         
         cart.push(item);
+        // ⭐️ 核心保留：將購物車寫入瀏覽器的 LocalStorage
         localStorage.setItem('yn_cart', JSON.stringify(cart)); 
         updateCartUI();
         alert("已加入購物車！"); 
+    }
+
+    function removeFromCart(id) {
+        cart = cart.filter(c => String(c.id).trim() !== String(id).trim());
+        // ⭐️ 核心保留：移除商品後，更新 LocalStorage
+        localStorage.setItem('yn_cart', JSON.stringify(cart));
+        updateCartUI();
     }
 
     function updateCartUI() {
@@ -299,7 +305,6 @@
         let details = ''; 
         
         cart.forEach(item => {
-            // ⭐️ 終極防護罩：如果遇到之前的空氣幽靈紀錄，直接略過不處理，保護網頁不當機！
             if (!item || !item.id) return; 
             
             const imgSrc = item.image_url_1 || ''; 
@@ -329,7 +334,6 @@
         document.getElementById('hidden-total').value = total;
     }
 
-    // ⭐️ 產生訂單代號函數
     function generateOrderID() {
         const date = new Date();
         const dateStr = date.toISOString().slice(2,10).replace(/-/g, '');
@@ -337,7 +341,6 @@
         return `YN${dateStr}${randomStr}`;
     }
 
-    // ⭐️ 打開第一層確認視窗 (移除個資，僅顯示明細)
     function openConfirmModal() {
         if (cart.length === 0) { alert("購物車是空的喔！"); return; }
         
@@ -376,28 +379,23 @@
     function closeModal() {
         document.getElementById('confirm-modal').style.display = 'none'; 
     }
-    // ⭐️ 新增：找回最後一筆訂單的救援功能
+
     function recoverLastOrder() {
         const lastOrderID = localStorage.getItem('yn_last_order_id');
         const lastTotal = localStorage.getItem('yn_last_order_total');
         
         if (lastOrderID && lastTotal) {
-            // 如果記憶體裡有紀錄，就把成功視窗再次打開
             document.getElementById('display-order-id').innerText = lastOrderID;
             document.getElementById('display-order-total').innerText = `NT$ ${lastTotal}`;
             document.getElementById('success-modal').style.display = 'flex';
         } else {
-            // 如果找不到紀錄
             alert("目前沒有找到您最近的訂單紀錄喔！如果確認已經下單，請直接私訊YN為您查詢。");
         }
     }
 
-    // ⭐️ 最終結帳：扣庫存並拋送資料，顯示成功視窗
+    // ⭐️ 最終結帳：改呼叫 FastAPI 進行扣庫存
     async function executeFinalCheckout() {
-        // ⭐️ 1. 先抓取客人填寫的 IG 帳號
         const buyerIdInput = document.getElementById('buyer-id').value.trim();
-        
-        // ⭐️ 2. 如果沒填，直接跳警告並中斷結帳！
         if (!buyerIdInput) {
             alert("⚠️ 請務必填寫您的 IG 帳號，才能為您成立訂單喔！");
             document.getElementById('buyer-id').focus(); 
@@ -409,34 +407,17 @@
         btn.disabled = true;
 
         try {
-            // ⭐️ 1. 向 Google 討最新庫存資料 (只抓一次，取代 SheetDB 迴圈)
-            const checkRes = await fetch(GAS_URL, { redirect: "follow" });
-            const allData = await checkRes.json();
-
-            // ⭐️ 2. 檢查庫存是否足夠
+            // ⭐️ 直接呼叫後端 API 扣除每一件商品的庫存
             for (let item of cart) {
-                const currentItem = allData.find(p => String(p.id).trim() === String(item.id).trim());
-                if (!currentItem || parseInt(currentItem.stock) <= 0) {
-                    alert(`抱歉！商品「${item.name}」剛剛被買走了，請關閉視窗並將它移除。`);
-                    closeModal();
-                    btn.innerText = "確認無誤，確定送出";
-                    btn.disabled = false;
-                    return; 
-                }
-            }
-
-            // ⭐️ 3. 呼叫 Google 執行扣除庫存 (取代 SheetDB 的 PATCH)
-            for (let item of cart) {
-                const currentItem = allData.find(p => String(p.id).trim() === String(item.id).trim());
-                const newStock = parseInt(currentItem.stock) - 1;
-
-                await fetch(GAS_URL, {
+                const checkoutRes = await fetch(`${API_BASE_URL}/checkout/${item.id}`, {
                     method: 'POST',
-                    redirect: 'follow',
-                    // 使用 text/plain 繞過瀏覽器的 CORS 阻擋機制
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-                    body: JSON.stringify({ id: item.id, stock: newStock })
+                    headers: { 'Content-Type': 'application/json' }
                 });
+                
+                const result = await checkoutRes.json();
+                if (result.status !== "success") {
+                    throw new Error(`抱歉！商品「${item.name}」剛剛被買走了，請關閉視窗並將它移除。`);
+                }
             }
 
             // 拋送資料到 Formspree
@@ -457,34 +438,27 @@
             });
 
             if (formspreeRes.ok) {
-                // ⭐️ 新增：把這筆訂單的代號和金額存進瀏覽器記憶體，以防萬一
+                // ⭐️ 保留最後一筆訂單紀錄
                 localStorage.setItem('yn_last_order_id', orderID);
                 localStorage.setItem('yn_last_order_total', totalAmount);
                 
-                // 關閉第一層視窗
                 closeModal();
                 
-                // 清空購物車
+                // ⭐️ 結帳成功，清空購物車的 LocalStorage
                 localStorage.removeItem('yn_cart'); 
                 cart = [];
                 updateCartUI(); 
                 
-                // 顯示第二層成功視窗與教學圖
                 document.getElementById('display-order-id').innerText = orderID;
                 document.getElementById('display-order-total').innerText = `NT$ ${totalAmount}`;
                 document.getElementById('success-modal').style.display = 'flex';
-                
-                // 重設按鈕狀態
-                btn.innerText = "確認無誤，確定送出";
-                btn.disabled = false;
             } else {
                 alert("⚠️ 傳送訂單時發生系統錯誤，請直接私訊我們！");
-                btn.innerText = "確認無誤，確定送出";
-                btn.disabled = false;
             }
 
         } catch (err) {
-            alert("系統繁忙，請稍後再試。");
+            alert(err.message || "系統繁忙，請稍後再試。");
+        } finally {
             btn.innerText = "確認無誤，確定送出";
             btn.disabled = false;
         }
